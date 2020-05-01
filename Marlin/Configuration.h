@@ -491,9 +491,9 @@
   // If you are using a pre-configured hotend then you can use one of the value sets by uncommenting it
 
   // Tevo Flash
-  #define DEFAULT_Kp 41.01
-  #define DEFAULT_Ki 3.70
-  #define DEFAULT_Kd 113.70
+  #define DEFAULT_Kp 22.45
+  #define DEFAULT_Ki 1.70
+  #define DEFAULT_Kd 74.15
 
   // MakerGear
   //#define DEFAULT_Kp 7.0
