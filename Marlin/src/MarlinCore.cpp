@@ -30,6 +30,10 @@
 
 #include "MarlinCore.h"
 
+#if ENABLED(MARLIN_DEV_MODE)
+  #warning "WARNING! Disable MARLIN_DEV_MODE for the final build!"
+#endif
+
 #include "HAL/shared/Delay.h"
 #include "HAL/shared/esp_wifi.h"
 
@@ -43,7 +47,7 @@
 #include "module/planner.h"
 #include "module/endstops.h"
 #include "module/temperature.h"
-#include "module/configuration_store.h"
+#include "module/settings.h"
 #include "module/printcounter.h" // PrintCounter or Stopwatch
 
 #include "module/stepper.h"
@@ -57,7 +61,7 @@
 
 #include "lcd/ultralcd.h"
 #if HAS_TOUCH_XPT2046
-  #include "lcd/touch/xpt2046.h"
+  #include "lcd/touch/touch_buttons.h"
 #endif
 
 #if HAS_TFT_LVGL_UI
@@ -68,9 +72,9 @@
 #endif
 
 #if ENABLED(DWIN_CREALITY_LCD)
-  #include "lcd/dwin/dwin.h"
+  #include "lcd/dwin/e3v2/dwin.h"
   #include "lcd/dwin/dwin_lcd.h"
-  #include "lcd/dwin/rotary_encoder.h"
+  #include "lcd/dwin/e3v2/rotary_encoder.h"
 #endif
 
 #if ENABLED(IIC_BL24CXX_EEPROM)
@@ -189,7 +193,7 @@
   #include "feature/leds/tempstat.h"
 #endif
 
-#if HAS_CASE_LIGHT
+#if ENABLED(CASE_LIGHT_ENABLE)
   #include "feature/caselight.h"
 #endif
 
@@ -211,6 +215,10 @@
 
 #if HAS_L64XX
   #include "libs/L64XX/L64XX_Marlin.h"
+#endif
+
+#if ENABLED(PASSWORD_FEATURE)
+  #include "feature/password/password.h"
 #endif
 
 PGMSTR(NUL_STR, "");
@@ -449,14 +457,18 @@ void startOrResumeJob() {
     #endif
     wait_for_heatup = false;
     TERN_(POWER_LOSS_RECOVERY, recovery.purge());
-    #ifdef EVENT_GCODE_SD_STOP
-      queue.inject_P(PSTR(EVENT_GCODE_SD_STOP));
+    #ifdef EVENT_GCODE_SD_ABORT
+      queue.inject_P(PSTR(EVENT_GCODE_SD_ABORT));
     #endif
+
+    TERN_(PASSWORD_AFTER_SD_PRINT_ABORT, password.lock_machine());
   }
 
   inline void finishSDPrinting() {
-    if (queue.enqueue_one_P(PSTR("M1001")))
+    if (queue.enqueue_one_P(PSTR("M1001"))) {
       marlin_state = MF_RUNNING;
+      TERN_(PASSWORD_AFTER_SD_PRINT_END, password.lock_machine());
+    }
   }
 
 #endif // SDSUPPORT
@@ -676,7 +688,7 @@ inline void manage_inactivity(const bool ignore_stepper_queue=false) {
  *  - Read Buttons and Update the LCD
  *  - Run i2c Position Encoders
  *  - Auto-report Temperatures / SD Status
- *  - Update the Prusa MMU2
+ *  - Update the Průša MMU2
  *  - Handle Joystick jogging
  */
 void idle(TERN_(ADVANCED_PAUSE_FEATURE, bool no_stepper_sleep/*=false*/)) {
@@ -752,7 +764,7 @@ void idle(TERN_(ADVANCED_PAUSE_FEATURE, bool no_stepper_sleep/*=false*/)) {
     }
   #endif
 
-  // Update the Prusa MMU2
+  // Update the Průša MMU2
   TERN_(PRUSA_MMU2, mmu2.mmu_loop());
 
   // Handle Joystick jogging
@@ -782,6 +794,10 @@ void kill(PGM_P const lcd_error/*=nullptr*/, PGM_P const lcd_component/*=nullptr
   #else
     UNUSED(lcd_error);
     UNUSED(lcd_component);
+  #endif
+
+  #if HAS_TFT_LVGL_UI
+    lv_draw_error_message(lcd_error);
   #endif
 
   #ifdef ACTION_ON_KILL
@@ -851,6 +867,57 @@ void stop() {
   }
 }
 
+inline void tmc_standby_setup() {
+  #if PIN_EXISTS(X_STDBY)
+    SET_INPUT_PULLDOWN(X_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(X2_STDBY)
+    SET_INPUT_PULLDOWN(X2_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(Y_STDBY)
+    SET_INPUT_PULLDOWN(Y_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(Y2_STDBY)
+    SET_INPUT_PULLDOWN(Y2_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(Z_STDBY)
+    SET_INPUT_PULLDOWN(Z_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(Z2_STDBY)
+    SET_INPUT_PULLDOWN(Z2_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(Z3_STDBY)
+    SET_INPUT_PULLDOWN(Z3_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(Z4_STDBY)
+    SET_INPUT_PULLDOWN(Z4_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E0_STDBY)
+    SET_INPUT_PULLDOWN(E0_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E1_STDBY)
+    SET_INPUT_PULLDOWN(E1_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E2_STDBY)
+    SET_INPUT_PULLDOWN(E2_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E3_STDBY)
+    SET_INPUT_PULLDOWN(E3_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E4_STDBY)
+    SET_INPUT_PULLDOWN(E4_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E5_STDBY)
+    SET_INPUT_PULLDOWN(E5_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E6_STDBY)
+    SET_INPUT_PULLDOWN(E6_STDBY_PIN);
+  #endif
+  #if PIN_EXISTS(E7_STDBY)
+    SET_INPUT_PULLDOWN(E7_STDBY_PIN);
+  #endif
+}
+
 /**
  * Marlin entry-point: Set up before the program loop
  *  - Set up the kill pin, filament runout, power hold
@@ -871,6 +938,8 @@ void stop() {
  *    • Max7219
  */
 void setup() {
+
+  tmc_standby_setup();  // TMC Low Power Standby pins must be set early or they're not usable
 
   #if ENABLED(MARLIN_DEV_MODE)
     auto log_current_ms = [&](PGM_P const msg) {
@@ -896,16 +965,21 @@ void setup() {
     #endif
   #endif
 
-  #if NUM_SERIAL > 0
-    MYSERIAL0.begin(BAUDRATE);
-    uint32_t serial_connect_timeout = millis() + 1000UL;
-    while (!MYSERIAL0 && PENDING(millis(), serial_connect_timeout)) { /*nada*/ }
-    #if HAS_MULTI_SERIAL
-      MYSERIAL1.begin(BAUDRATE);
-      serial_connect_timeout = millis() + 1000UL;
-      while (!MYSERIAL1 && PENDING(millis(), serial_connect_timeout)) { /*nada*/ }
-    #endif
-    SERIAL_ECHO_MSG("start");
+  MYSERIAL0.begin(BAUDRATE);
+  uint32_t serial_connect_timeout = millis() + 1000UL;
+  while (!MYSERIAL0 && PENDING(millis(), serial_connect_timeout)) { /*nada*/ }
+  #if HAS_MULTI_SERIAL
+    MYSERIAL1.begin(BAUDRATE);
+    serial_connect_timeout = millis() + 1000UL;
+    while (!MYSERIAL1 && PENDING(millis(), serial_connect_timeout)) { /*nada*/ }
+  #endif
+  SERIAL_ECHO_MSG("start");
+
+  #if BOTH(HAS_TFT_LVGL_UI, USE_WIFI_FUNCTION)
+    mks_esp_wifi_init();
+    WIFISERIAL.begin(WIFI_BAUDRATE);
+    serial_connect_timeout = millis() + 1000UL;
+    while (/*!WIFISERIAL && */PENDING(millis(), serial_connect_timeout)) { /*nada*/ }
   #endif
 
   SETUP_RUN(HAL_init());
@@ -914,7 +988,7 @@ void setup() {
     SETUP_RUN(L64xxManager.init());  // Set up SPI, init drivers
   #endif
 
-  #if ENABLED(SMART_EFFECTOR) && PIN_EXISTS(SMART_EFFECTOR_MOD)
+  #if ENABLED(DUET_SMART_EFFECTOR) && PIN_EXISTS(SMART_EFFECTOR_MOD)
     OUT_WRITE(SMART_EFFECTOR_MOD_PIN, LOW);   // Put Smart Effector into NORMAL mode
   #endif
 
@@ -965,22 +1039,27 @@ void setup() {
   SERIAL_CHAR(' ');
   SERIAL_ECHOLNPGM(SHORT_BUILD_VERSION);
   SERIAL_EOL();
-
   #if defined(STRING_DISTRIBUTION_DATE) && defined(STRING_CONFIG_H_AUTHOR)
     SERIAL_ECHO_MSG(
-      STR_CONFIGURATION_VER
-      STRING_DISTRIBUTION_DATE
-      STR_AUTHOR STRING_CONFIG_H_AUTHOR
+      " Last Updated: " STRING_DISTRIBUTION_DATE
+      " | Author: " STRING_CONFIG_H_AUTHOR
     );
-    SERIAL_ECHO_MSG("Compiled: " __DATE__);
   #endif
+  SERIAL_ECHO_MSG("Compiled: " __DATE__);
+  SERIAL_ECHO_MSG(STR_FREE_MEMORY, freeMemory(), STR_PLANNER_BUFFER_BYTES, (int)sizeof(block_t) * (BLOCK_BUFFER_SIZE));
 
-  SERIAL_ECHO_START();
-  SERIAL_ECHOLNPAIR(STR_FREE_MEMORY, freeMemory(), STR_PLANNER_BUFFER_BYTES, (int)sizeof(block_t) * (BLOCK_BUFFER_SIZE));
+  // Init buzzer pin(s)
+  #if USE_BEEPER
+    SETUP_RUN(buzzer.init());
+  #endif
 
   // Set up LEDs early
   #if HAS_COLOR_LEDS
     SETUP_RUN(leds.setup());
+  #endif
+
+  #if ENABLED(NEOPIXEL2_SEPARATE)
+    SETUP_RUN(leds2.setup());
   #endif
 
   #if ENABLED(USE_CONTROLLER_FAN)     // Set up fan controller to initialize also the default configurations.
@@ -998,7 +1077,7 @@ void setup() {
     DWIN_UpdateLCD();     // Show bootscreen (first image)
   #else
     SETUP_RUN(ui.init());
-    #if HAS_SPI_LCD && ENABLED(SHOW_BOOTSCREEN)
+    #if HAS_WIRED_LCD && ENABLED(SHOW_BOOTSCREEN)
       SETUP_RUN(ui.show_bootscreen());
     #endif
     SETUP_RUN(ui.reset_status());     // Load welcome message early. (Retained if no errors exist.)
@@ -1082,11 +1161,11 @@ void setup() {
     OUT_WRITE(STAT_LED_BLUE_PIN, LOW); // OFF
   #endif
 
-  #if HAS_CASE_LIGHT
+  #if ENABLED(CASE_LIGHT_ENABLE)
     #if DISABLED(CASE_LIGHT_USE_NEOPIXEL)
       if (PWM_PIN(CASE_LIGHT_PIN)) SET_PWM(CASE_LIGHT_PIN); else SET_OUTPUT(CASE_LIGHT_PIN);
     #endif
-    SETUP_RUN(update_case_light());
+    SETUP_RUN(caselight.update_brightness());
   #endif
 
   #if ENABLED(MK2_MULTIPLEXER)
@@ -1203,6 +1282,10 @@ void setup() {
       if (!card.isMounted()) SETUP_RUN(card.mount()); // Mount SD to load graphics and fonts
     #endif
     SETUP_RUN(tft_lvgl_init());
+  #endif
+
+  #if ENABLED(PASSWORD_ON_STARTUP)
+    SETUP_RUN(password.lock_machine());      // Will not proceed until correct password provided
   #endif
 
   marlin_state = MF_RUNNING;
